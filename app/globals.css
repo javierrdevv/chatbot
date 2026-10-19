@@ -146,12 +146,10 @@ body::before {
 @keyframes glow-breathe {
   0%,
   100% {
-    opacity: 0.75;
-    transform: scale(1);
+    opacity: 0.7;
   }
   50% {
     opacity: 1;
-    transform: scale(1.05);
   }
 }
 
@@ -223,6 +221,97 @@ body::before {
 
 .animate-fade-in {
   animation: fade-in 0.2s ease both;
+}
+
+/* Ruang scrollbar selalu dialokasikan: konten tidak bergeser
+   saat scrollbar muncul/hilang (empty state <-> chat) */
+.chat-scroll {
+  scrollbar-gutter: stable;
+}
+
+/* Loading screen: 4 ring berputar 3D */
+.splash {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  transition: opacity 0.4s ease;
+}
+
+.splash-out {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.splash .rings {
+  position: relative;
+  width: 160px;
+  height: 160px;
+}
+
+.splash .ring {
+  position: absolute;
+  inset: 0;
+  border: 1px solid transparent;
+  border-radius: 50%;
+}
+
+.splash .ring1 {
+  border-bottom: 7px solid #be123c;
+  animation: ring1 2s linear infinite;
+}
+
+.splash .ring2 {
+  border-bottom: 7px solid #f43f5e;
+  animation: ring2 2s linear infinite;
+}
+
+.splash .ring3 {
+  border-bottom: 7px solid #fb7185;
+  animation: ring3 2s linear infinite;
+}
+
+.splash .ring4 {
+  border-bottom: 7px solid #71717a;
+  animation: ring4 2s linear infinite;
+}
+
+@keyframes ring1 {
+  from {
+    transform: rotateX(50deg) rotateZ(110deg);
+  }
+  to {
+    transform: rotateX(50deg) rotateZ(470deg);
+  }
+}
+
+@keyframes ring2 {
+  from {
+    transform: rotateX(20deg) rotateY(50deg) rotateZ(20deg);
+  }
+  to {
+    transform: rotateX(20deg) rotateY(50deg) rotateZ(380deg);
+  }
+}
+
+@keyframes ring3 {
+  from {
+    transform: rotateX(40deg) rotateY(130deg) rotateZ(450deg);
+  }
+  to {
+    transform: rotateX(40deg) rotateY(130deg) rotateZ(90deg);
+  }
+}
+
+@keyframes ring4 {
+  from {
+    transform: rotateX(70deg) rotateZ(270deg);
+  }
+  to {
+    transform: rotateX(70deg) rotateZ(630deg);
+  }
 }
 
 .pulse-soft {

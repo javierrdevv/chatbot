@@ -44,6 +44,7 @@ export default function Home() {
   const [theme, setTheme] = useState<"light" | "dark" | null>(null);
   const [limited, setLimited] = useState(false);
   const [ph, setPh] = useState(0);
+  const [splash, setSplash] = useState<"on" | "out" | "off">("on");
 
   const mainRef = useRef<HTMLElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -68,6 +69,15 @@ export default function Home() {
   useEffect(() => {
     const id = setInterval(() => setPh((p) => p + 1), 3200);
     return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    const t1 = setTimeout(() => setSplash("out"), 750);
+    const t2 = setTimeout(() => setSplash("off"), 1150);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
   }, []);
 
   useEffect(() => {
@@ -188,7 +198,26 @@ export default function Home() {
   const streaming = busy && messages[messages.length - 1]?.role === "assistant";
 
   return (
-    <div className="flex h-[100dvh] flex-col">
+    <div className="flex h-[100svh] flex-col">
+      {splash !== "off" && (
+        <div
+          role="status"
+          aria-label="Memuat"
+          className={"splash" + (splash === "out" ? " splash-out" : "")}
+        >
+          <div className="flex flex-col items-center gap-5">
+            <div className="rings">
+              <div className="ring ring1" />
+              <div className="ring ring2" />
+              <div className="ring ring3" />
+              <div className="ring ring4" />
+            </div>
+            <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-muted">
+              memuat...
+            </span>
+          </div>
+        </div>
+      )}
       <header className="glass-bar animate-fade-down relative z-10 shrink-0 border-b border-[var(--glass-line)]">
         <div className="mx-auto flex h-14 w-full max-w-3xl items-center gap-2.5 px-4">
           <span className="grid h-7 w-7 place-items-center rounded-[9px] bg-accent-soft text-accent">
@@ -215,7 +244,10 @@ export default function Home() {
         </div>
       </header>
 
-      <main ref={mainRef} className="relative -mt-14 flex-1 overflow-y-auto overscroll-contain">
+      <main
+        ref={mainRef}
+        className="chat-scroll relative -mt-14 flex-1 overflow-y-auto overscroll-contain"
+      >
         <div className="mx-auto w-full max-w-3xl px-4 pb-6 pt-20 sm:pb-10 sm:pt-24">
           {empty ? (
             <div className="animate-fade-up">
