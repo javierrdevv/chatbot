@@ -6,6 +6,8 @@ import {
   ArrowUp,
   ChatCircleDots,
   Moon,
+  SpeakerHigh,
+  SpeakerSlash,
   Stop,
   Sun,
   WarningCircle,
@@ -45,6 +47,7 @@ export default function Home() {
   const [limited, setLimited] = useState(false);
   const [ph, setPh] = useState(0);
   const [splash, setSplash] = useState<"on" | "out" | "off">("on");
+  const [speaking, setSpeaking] = useState<number | null>(null);
 
   const mainRef = useRef<HTMLElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -80,6 +83,32 @@ export default function Home() {
     };
   }, []);
 
+  // siapkan daftar suara TTS (Chrome perlu "dipanasin" sekali)
+  useEffect(() => {
+    if ("speechSynthesis" in window) speechSynthesis.getVoices();
+    return () => {
+      if ("speechSynthesis" in window) speechSynthesis.cancel();
+    };
+  }, []);
+
+  function speak(i: number, text: string) {
+    if (!("speechSynthesis" in window)) return;
+    if (speaking === i) {
+      speechSynthesis.cancel();
+      setSpeaking(null);
+      return;
+    }
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    const voice = speechSynthesis.getVoices().find((v) => v.lang.toLowerCase().startsWith("id"));
+    if (voice) u.voice = voice;
+    u.lang = "id-ID";
+    u.onend = () => setSpeaking(null);
+    u.onerror = () => setSpeaking(null);
+    setSpeaking(i);
+    speechSynthesis.speak(u);
+  }
+
   useEffect(() => {
     const saved = localStorage.getItem("theme");
     const t = saved === "dark" ? "dark" : "light";
@@ -101,6 +130,10 @@ export default function Home() {
     setError(null);
     setInput("");
     setBusy(true);
+    if ("speechSynthesis" in window) {
+      speechSynthesis.cancel();
+      setSpeaking(null);
+    }
 
     const next: Msg[] = [...messages, { role: "user", content: value }];
     setMessages([...next, { role: "assistant", content: "" }]);
@@ -295,12 +328,29 @@ export default function Home() {
                     >
                       <ChatCircleDots size={14} weight="fill" />
                     </span>
-                    <p className="min-w-0 whitespace-pre-wrap break-words text-[15px] leading-[1.7]">
-                      {m.content}
-                      {streaming && i === messages.length - 1 && (
-                        <span className="caret ml-0.5 inline-block h-[1.05em] w-[0.45em] translate-y-[0.15em] bg-accent align-baseline" />
+                    <div className="min-w-0">
+                      <p className="whitespace-pre-wrap break-words text-[15px] leading-[1.7]">
+                        {m.content}
+                        {streaming && i === messages.length - 1 && (
+                          <span className="caret ml-0.5 inline-block h-[1.05em] w-[0.45em] translate-y-[0.15em] bg-accent align-baseline" />
+                        )}
+                      </p>
+                      {m.content && !(streaming && i === messages.length - 1) && (
+                        <button
+                          type="button"
+                          onClick={() => speak(i, m.content)}
+                          aria-label={speaking === i ? "Berhenti membacakan" : "Bacakan jawaban"}
+                          title="Dengarkan jawaban"
+                          className="mt-1.5 inline-grid h-7 w-7 place-items-center rounded-full text-muted transition hover:bg-accent-soft hover:text-accent active:scale-95"
+                        >
+                          {speaking === i ? (
+                            <SpeakerSlash size={14} weight="fill" />
+                          ) : (
+                            <SpeakerHigh size={14} />
+                          )}
+                        </button>
                       )}
-                    </p>
+                    </div>
                   </li>
                 ),
               )}
