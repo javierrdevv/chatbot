@@ -4,16 +4,30 @@ import { useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
   ArrowUp,
+  Check,
   ChatCircleDots,
+  GlobeSimple,
+  List,
   Moon,
+  Paperclip,
   SpeakerHigh,
   SpeakerSlash,
   Stop,
   Sun,
   WarningCircle,
+  X,
 } from "@phosphor-icons/react";
 
-type Msg = { role: "user" | "assistant"; content: string };
+type Msg = { role: "user" | "assistant"; content: string; img?: string };
+
+const MODES = [
+  { id: "normal", label: "Normal", hint: "Seperti biasa" },
+  { id: "lembut", label: "Lembut", hint: "Hangat & menenangkan" },
+  { id: "galak", label: "Galak", hint: "Tegas, langsung ke inti" },
+  { id: "judes", label: "Judes", hint: "Datar & nyolong dikit" },
+  { id: "profesional", label: "Profesional", hint: "Formal & rapi" },
+] as const;
+type Mode = (typeof MODES)[number]["id"];
 
 const STARTER_POOL = [
   "Jelaskan cara kerja HTTP dengan bahasa sederhana",
@@ -34,13 +48,14 @@ const PLACEHOLDERS = [
   "Tulis pesan...",
   "Tanya apa saja...",
   "Minta contoh atau ide...",
-  "Minta tolong nulis apa pun...",
+  "Kirim foto, bot bisa menjelaskan isinya...",
 ];
 
-// Markdown mini: **tebal**, `kode`, dan buang penanda heading (###)
+// Markdown mini: **tebal**, `kode`, heading (###) dan bullet (*) dibersihkan
 function rich(text: string) {
   return text
     .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^\s*\*\s+/gm, "• ")
     .split(/(\*\*[^*]+\*\*|`[^`]+`)/g)
     .map((part, i) => {
       if (/^\*\*[^*]+\*\*$/.test(part))
@@ -70,10 +85,35 @@ export default function Home() {
   const [ph, setPh] = useState(0);
   const [splash, setSplash] = useState<"on" | "out" | "off">("on");
   const [speaking, setSpeaking] = useState<number | null>(null);
+  const [img, setImg] = useState<string | null>(null);
+  const [search, setSearch] = useState(false);
+  const [limitMsg, setLimitMsg] = useState<string | null>(null);
+  const [mode, setMode] = useState<Mode>("normal");
+  const [menu, setMenu] = useState(false);
 
   const mainRef = useRef<HTMLElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  function pickImage(file: File) {
+    if (!file.type.startsWith("image/")) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const el = new Image();
+      el.onload = () => {
+        const max = 960;
+        const scale = Math.min(1, max / Math.max(el.width, el.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(el.width * scale);
+        canvas.height = Math.round(el.height * scale);
+        canvas.getContext("2d")?.drawImage(el, 0, 0, canvas.width, canvas.height);
+        setImg(canvas.toDataURL("image/jpeg", 0.75));
+      };
+      el.src = String(reader.result);
+    };
+    reader.readAsDataURL(file);
+  }
 
   useEffect(() => {
     const el = taRef.current;
@@ -115,6 +155,12 @@ export default function Home() {
 
   function speak(i: number, text: string) {
     if (!("speechSynthesis" in window)) return;
+    // buang markdown supaya TTS tidak membaca bintang
+    text = text
+      .replace(/\*\*/g, "")
+      .replace(/`/g, "")
+      .replace(/^#{1,6}\s+/gm, "")
+      .replace(/^\s*[-*]\s+/gm, "");
     if (speaking === i) {
       speechSynthesis.cancel();
       setSpeaking(null);
@@ -162,6 +208,8 @@ export default function Home() {
     const t = saved === "dark" ? "dark" : "light";
     document.documentElement.dataset.theme = t;
     setTheme(t);
+    const savedMode = localStorage.getItem("mode");
+    if (MODES.some((m) => m.id === savedMode)) setMode(savedMode as Mode);
   }, []);
 
   function toggleTheme() {
@@ -171,9 +219,15 @@ export default function Home() {
     setTheme(next);
   }
 
+  function pickMode(m: Mode) {
+    setMode(m);
+    localStorage.setItem("mode", m);
+    setMenu(false);
+  }
+
   async function send(text: string) {
     const value = text.trim();
-    if (!value || busy) return;
+    if ((!value && !img) || busy) return;
 
     setError(null);
     setInput("");
@@ -183,8 +237,11 @@ export default function Home() {
       setSpeaking(null);
     }
 
-    const next: Msg[] = [...messages, { role: "user", content: value }];
+    const shown = value || "Tolong jelaskan gambar ini.";
+    const next: Msg[] = [...messages, { role: "user", content: shown, img: img ?? undefined }];
     setMessages([...next, { role: "assistant", content: "" }]);
+    const attached = img;
+    setImg(null);
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -199,11 +256,24 @@ export default function Home() {
         return copy;
       });
 
+    // gambar hanya dikirim dari pesan terakhir; sisanya teks saja (hemat kuota)
+    const payload = next.map((m, i) =>
+      m.img && i === next.length - 1
+        ? {
+            role: m.role,
+            content: [
+              { type: "text", text: m.content },
+              { type: "image_url", image_url: { url: m.img } },
+            ],
+          }
+        : { role: m.role, content: m.content },
+    );
+
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: next }),
+        body: JSON.stringify({ messages: payload, search, mode }),
         signal: ctrl.signal,
       });
 
@@ -215,10 +285,13 @@ export default function Home() {
           ),
         );
         if (res.status === 429) {
+          setLimitMsg(data?.error ?? null);
           setLimited(true);
+          if (attached) setImg(attached);
           return;
         }
         setError(data?.error ?? "Permintaan gagal. Coba lagi.");
+        if (attached) setImg(attached);
         return;
       }
 
@@ -299,8 +372,22 @@ export default function Home() {
           </div>
         </div>
       )}
-      <header className="glass-bar animate-fade-down relative z-10 shrink-0 border-b border-[var(--glass-line)]">
+      <header className="glass-bar animate-fade-down relative z-20 shrink-0 border-b border-[var(--glass-line)]">
         <div className="mx-auto flex h-14 w-full max-w-3xl items-center gap-2.5 px-4">
+          <button
+            type="button"
+            onClick={() => setMenu((v) => !v)}
+            aria-label="Buka menu mode jawaban"
+            aria-expanded={menu}
+            className={
+              "grid h-8 w-8 shrink-0 place-items-center rounded-full border transition active:scale-95 " +
+              (menu
+                ? "border-accent/50 bg-accent-soft text-accent"
+                : "border-line text-muted hover:border-accent/40 hover:text-accent")
+            }
+          >
+            {menu ? <X size={16} weight="bold" /> : <List size={17} weight="bold" />}
+          </button>
           <span className="grid h-7 w-7 place-items-center rounded-[9px] bg-accent-soft text-accent">
             <ChatCircleDots size={16} weight="fill" />
           </span>
@@ -323,6 +410,49 @@ export default function Home() {
             )}
           </button>
         </div>
+
+        {menu && (
+          <div className="animate-fade-down absolute inset-x-0 top-full border-b border-[var(--glass-line)] bg-[var(--surface)] px-4 pb-3 pt-1 shadow-[0_12px_32px_rgba(0,0,0,0.14)]">
+            <p className="px-1 pb-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-muted">
+              Mode jawaban
+            </p>
+            <ul className="mx-auto w-full max-w-3xl space-y-0.5">
+              {MODES.map((m) => {
+                const active = mode === m.id;
+                return (
+                  <li key={m.id}>
+                    <button
+                      type="button"
+                      onClick={() => pickMode(m.id)}
+                      aria-pressed={active}
+                      className={
+                        "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition active:scale-[0.98] " +
+                        (active
+                          ? "bg-accent-soft text-accent"
+                          : "text-ink hover:bg-surface2/70")
+                      }
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[14.5px] font-medium leading-tight">
+                          {m.label}
+                        </span>
+                        <span
+                          className={
+                            "block text-[12.5px] leading-snug " +
+                            (active ? "text-accent/80" : "text-muted")
+                          }
+                        >
+                          {m.hint}
+                        </span>
+                      </span>
+                      {active && <Check size={16} weight="bold" className="shrink-0" />}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
       </header>
 
       <main
@@ -363,6 +493,14 @@ export default function Home() {
                 m.role === "user" ? (
                   <li key={i} className="animate-fade-up flex justify-end">
                     <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-br-md bg-gradient-to-br from-accent to-accent-strong px-4 py-2.5 text-[15px] leading-relaxed text-onaccent shadow-[0_1px_10px_var(--accent-soft)]">
+                      {m.img && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={m.img}
+                          alt="Gambar terkirim"
+                          className="mb-2 max-h-44 w-auto rounded-xl border border-white/25"
+                        />
+                      )}
                       {m.content}
                     </div>
                   </li>
@@ -428,7 +566,68 @@ export default function Home() {
         className="glass-bar animate-fade-up shrink-0 border-t border-[var(--glass-line)]"
       >
         <div className="mx-auto w-full max-w-3xl px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 sm:pb-[calc(1rem+env(safe-area-inset-bottom))]">
-          <div className="flex items-end gap-2 rounded-2xl border border-[var(--glass-line)] bg-surface/55 py-1.5 pl-4 pr-1.5 transition hover:border-accent/30 focus-within:border-accent/60 focus-within:ring-4 focus-within:ring-accent/25">
+          {img && (
+            <div className="mb-2 flex items-center gap-2.5 rounded-xl border border-line bg-surface/80 px-2.5 py-2">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={img}
+                alt="Pratinjau lampiran"
+                className="h-11 w-11 rounded-lg border border-line object-cover"
+              />
+              <span className="min-w-0 flex-1 truncate text-[13px] text-muted">
+                Gambar siap dikirim
+              </span>
+              <button
+                type="button"
+                onClick={() => setImg(null)}
+                aria-label="Hapus lampiran gambar"
+                className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-muted transition hover:bg-accent-soft hover:text-accent active:scale-95"
+              >
+                <X size={15} />
+              </button>
+            </div>
+          )}
+          <div className="flex items-end gap-1.5 rounded-2xl border border-[var(--glass-line)] bg-surface/55 py-1.5 pl-2 pr-1.5 transition hover:border-accent/30 focus-within:border-accent/60 focus-within:ring-4 focus-within:ring-accent/25">
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) pickImage(f);
+                e.target.value = "";
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              aria-label="Lampirkan gambar"
+              title="Kirim gambar (maks 2 per hari)"
+              className={
+                "grid h-8 w-8 shrink-0 place-items-center rounded-full transition active:scale-95 " +
+                (img
+                  ? "bg-accent-soft text-accent"
+                  : "text-muted hover:bg-accent-soft hover:text-accent")
+              }
+            >
+              <Paperclip size={16} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setSearch((s) => !s)}
+              aria-pressed={search}
+              aria-label="Cari di web"
+              title="Jawaban pakai info terkini dari web"
+              className={
+                "grid h-8 w-8 shrink-0 place-items-center rounded-full transition active:scale-95 " +
+                (search
+                  ? "bg-accent-soft text-accent"
+                  : "text-muted hover:bg-accent-soft hover:text-accent")
+              }
+            >
+              <GlobeSimple size={17} />
+            </button>
             <textarea
               ref={taRef}
               value={input}
@@ -436,7 +635,11 @@ export default function Home() {
               onKeyDown={onKeyDown}
               rows={1}
               placeholder={
-                input ? "Tulis pesan..." : PLACEHOLDERS[ph % PLACEHOLDERS.length]
+                input
+                  ? "Tulis pesan..."
+                  : img
+                    ? "Tulis keterangan gambar (opsional)..."
+                    : PLACEHOLDERS[ph % PLACEHOLDERS.length]
               }
               aria-label="Pesan"
               className="max-h-32 min-h-[28px] flex-1 resize-none bg-transparent py-1.5 text-[16px] leading-6 text-ink outline-none placeholder:text-muted"
@@ -454,7 +657,7 @@ export default function Home() {
               <button
                 type="submit"
                 aria-label="Kirim"
-                disabled={!input.trim()}
+                disabled={!input.trim() && !img}
                 className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-gradient-to-br from-accent to-accent-strong text-onaccent shadow-[0_2px_12px_var(--accent-soft)] transition enabled:hover:scale-105 enabled:hover:brightness-110 enabled:active:scale-95 disabled:opacity-25"
               >
                 <ArrowUp size={18} weight="bold" />
@@ -486,7 +689,7 @@ export default function Home() {
               Waduh, limit broh!
             </h2>
             <p className="mt-2 text-[14.5px] leading-relaxed text-muted">
-              Maap, masih demo soalnya. Coba lain waktu ya.
+              {limitMsg ?? "Maap, masih demo soalnya. Coba lain waktu ya."}
             </p>
             <button
               type="button"

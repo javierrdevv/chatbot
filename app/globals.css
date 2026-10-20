@@ -249,6 +249,7 @@ body::before {
   position: relative;
   width: 160px;
   height: 160px;
+  perspective: 420px;
 }
 
 .splash .ring {
@@ -256,6 +257,9 @@ body::before {
   inset: 0;
   border: 1px solid transparent;
   border-radius: 50%;
+  will-change: transform;
+  transform-style: preserve-3d;
+  backface-visibility: hidden;
 }
 
 .splash .ring1 {
