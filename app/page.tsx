@@ -99,14 +99,40 @@ export default function Home() {
       return;
     }
     speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    const voice = speechSynthesis.getVoices().find((v) => v.lang.toLowerCase().startsWith("id"));
-    if (voice) u.voice = voice;
-    u.lang = "id-ID";
-    u.onend = () => setSpeaking(null);
-    u.onerror = () => setSpeaking(null);
-    setSpeaking(i);
-    speechSynthesis.speak(u);
+
+    const speakNow = () => {
+      const u = new SpeechSynthesisUtterance(text);
+      const voices = speechSynthesis.getVoices();
+      const voice =
+        voices.find((v) => v.lang.toLowerCase().startsWith("id")) ??
+        voices.find((v) => v.lang.toLowerCase().startsWith("en"));
+      if (voice) {
+        u.voice = voice;
+        u.lang = voice.lang;
+      } else {
+        u.lang = "id-ID";
+      }
+      u.onend = () => setSpeaking(null);
+      u.onerror = () => setSpeaking(null);
+      setSpeaking(i);
+      speechSynthesis.speak(u);
+    };
+
+    if (speechSynthesis.getVoices().length === 0) {
+      // daftar suara belum siap (Chrome butuh waktu) -> tunggu siap
+      let called = false;
+      const once = () => {
+        if (called) return;
+        called = true;
+        speechSynthesis.removeEventListener("voiceschanged", once);
+        speakNow();
+      };
+      speechSynthesis.addEventListener("voiceschanged", once);
+      setTimeout(once, 1200);
+    } else {
+      // Chrome bug: speak() langsung setelah cancel() kadang ditelan -> jeda tipis
+      setTimeout(speakNow, 60);
+    }
   }
 
   useEffect(() => {
