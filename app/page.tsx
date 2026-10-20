@@ -37,6 +37,28 @@ const PLACEHOLDERS = [
   "Minta tolong nulis apa pun...",
 ];
 
+// Markdown mini: **tebal**, `kode`, dan buang penanda heading (###)
+function rich(text: string) {
+  return text
+    .replace(/^#{1,6}\s+/gm, "")
+    .split(/(\*\*[^*]+\*\*|`[^`]+`)/g)
+    .map((part, i) => {
+      if (/^\*\*[^*]+\*\*$/.test(part))
+        return (
+          <strong key={i} className="font-semibold">
+            {part.slice(2, -2)}
+          </strong>
+        );
+      if (/^`[^`]+`$/.test(part))
+        return (
+          <code key={i} className="rounded bg-surface2 px-1 py-0.5 font-mono text-[0.9em]">
+            {part.slice(1, -1)}
+          </code>
+        );
+      return <span key={i}>{part}</span>;
+    });
+}
+
 export default function Home() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
@@ -356,7 +378,7 @@ export default function Home() {
                     </span>
                     <div className="min-w-0">
                       <p className="whitespace-pre-wrap break-words text-[15px] leading-[1.7]">
-                        {m.content}
+                        {rich(m.content)}
                         {streaming && i === messages.length - 1 && (
                           <span className="caret ml-0.5 inline-block h-[1.05em] w-[0.45em] translate-y-[0.15em] bg-accent align-baseline" />
                         )}
